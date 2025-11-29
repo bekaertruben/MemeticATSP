@@ -2,11 +2,11 @@ import numpy as np
 from numba import njit, prange
 from numba.experimental import jitclass
 from numba import types
-from representation import tour_cost, is_valid_tour, to_city_order, hamming_distance
-from greedy import greedy_cycle
-from crossover import EAX, EAX_single
-from mutation import double_bridge
-from search import lso_3opt, precompute_candidates
+from tsp.representation import tour_cost, is_valid_tour, to_city_order, hamming_distance
+from tsp.greedy import greedy_cycle
+from tsp.crossover import EAX, EAX_single
+from tsp.mutation import double_bridge
+from tsp.search import lso_3opt, precompute_candidates
 
 
 config_spec = [
@@ -51,13 +51,13 @@ class MemeticATSP:
     def __init__(
         self,
         distance_matrix: np.ndarray,
-        population_size: int = 500,
+        population_size: int = 300,
         offspring_size: int = None,
         window_size: int = None,
         mutation_rate: float = 0.25,
-        tournament_size: int = 3,
-        init_temp: float = 0.1,
-        search_iterations: int = 5,
+        tournament_size: int = 5,
+        init_temp: float = 0.02,
+        search_iterations: int = 1,
     ):
         self.population = None
         self.fitness = None
@@ -68,7 +68,7 @@ class MemeticATSP:
             candidates = precompute_candidates(distance_matrix),
             population_size = population_size,
             offspring_size = offspring_size if offspring_size is not None else population_size,
-            window_size = window_size if window_size is not None else max(1, population_size // 50),
+            window_size = window_size if window_size is not None else max(1, population_size // 10),
             mutation_rate = mutation_rate,
             tournament_size = tournament_size,
             init_temp = init_temp,
@@ -247,13 +247,3 @@ def elimination(population, population_fitness, offspring, offspring_fitness, co
             new_fitness[best_idx] = offspring_fit
 
     return new_population, new_fitness
-
-
-
-if __name__ == "__main__":
-    D = np.loadtxt("tours/tour50.csv", delimiter=",")
-
-    ea = MemeticATSP(D)
-    ea.run(10)
-    assert is_valid_tour(ea.best_tour), "Best tour is invalid!"
-    print(to_city_order(ea.best_tour))
