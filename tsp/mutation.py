@@ -5,19 +5,21 @@ from numba import njit
 MUTATION OPERATORS:
 
 This module implements mutation operators for TSP tours.
-These operators modify tours in-place.
+These operators modify tours in-place and return the cost delta.
 """
 
 
 @njit(cache=True)
-def displacement(tour):
+def displacement(tour, D):
     """
     Perform a random displacement mutation on a tour in (2, N) edge-map representation.
     Removes a node from its current position and inserts it after another node.
+    
+    Returns the cost delta (negative means improvement).
     """
     N = tour.shape[1]
     if N < 3:
-        return
+        return 0.0
 
     node_to_move = np.random.randint(N)
     target = np.random.randint(N)
@@ -32,6 +34,13 @@ def displacement(tour):
     # Get successor of target
     target_succ = tour[0, target]
 
+    # Calculate cost delta
+    # Edges removed: pred -> node_to_move, node_to_move -> succ, target -> target_succ
+    # Edges added: pred -> succ, target -> node_to_move, node_to_move -> target_succ
+    old_cost = D[pred, node_to_move] + D[node_to_move, succ] + D[target, target_succ]
+    new_cost = D[pred, succ] + D[target, node_to_move] + D[node_to_move, target_succ]
+    delta = new_cost - old_cost
+
     # Remove node_to_move: connect pred -> succ
     tour[0, pred] = succ
     tour[1, succ] = pred
@@ -42,9 +51,73 @@ def displacement(tour):
     tour[0, node_to_move] = target_succ
     tour[1, target_succ] = node_to_move
 
+    return delta
+
 
 @njit(cache=True)
-def double_bridge(tour):
+def reverse(tour, D):
+    """
+    Perform a random 2-opt move on a tour in (2, N) edge-map representation.
+    Picks two random nodes and reverses the segment between them.
+    
+    Returns the cost delta (negative means improvement).
+    """
+    N = tour.shape[1]
+    if N < 4:
+        return 0.0
+
+    # Pick two distinct random nodes that are not adjacent
+    a = np.random.randint(N)
+    c = np.random.randint(N)
+    while c == a or c == tour[0, a] or a == tour[0, c]:
+        c = np.random.randint(N)
+
+    b = tour[0, a]  # a -> b
+    d = tour[0, c]  # c -> d
+
+    # Collect nodes in the segment b -> ... -> c
+    segment = []
+    curr = b
+    while curr != c:
+        segment.append(curr)
+        curr = tour[0, curr]
+    segment.append(c)
+    
+    # Calculate cost delta (for ATSP, all reversed edges change cost)
+    # Edges removed: a -> b, c -> d, and all internal edges in segment
+    # Edges added: a -> c, b -> d, and all internal edges reversed
+    old_cost = D[a, b] + D[c, d]
+    new_cost = D[a, c] + D[b, d]
+    
+    # Add cost change from reversing internal edges
+    for i in range(len(segment) - 1):
+        old_cost += D[segment[i], segment[i + 1]]
+        new_cost += D[segment[i + 1], segment[i]]
+    
+    delta = new_cost - old_cost
+    
+    # Reverse the segment: now goes c -> ... -> b
+    # New connections: a -> c, c -> prev(c), ..., b -> d
+    
+    # First, set up the new forward edges within the reversed segment
+    for i in range(len(segment) - 1):
+        # segment[i] now points to segment[i-1] (reversed direction)
+        # But we need to be careful: segment[0] = b should point to d
+        # segment[-1] = c should be pointed to by a
+        tour[0, segment[i + 1]] = segment[i]
+        tour[1, segment[i]] = segment[i + 1]
+    
+    # Connect the endpoints
+    tour[0, a] = c
+    tour[1, c] = a
+    tour[0, b] = d
+    tour[1, d] = b
+
+    return delta
+
+
+@njit(cache=True)
+def double_bridge(tour, D):
     """
     Perform a double bridge mutation (4-opt kick) in-place.
     
@@ -53,10 +126,12 @@ def double_bridge(tour):
     
     This reconnects segments as A, D, C, B (where original was A, B, C, D).
     Only 4 edges are modified - O(1) operation.
+    
+    Returns the cost delta (negative means improvement).
     """
     N = tour.shape[1]
     if N < 8:
-        return
+        return 0.0
 
     # Pick 4 distinct random nodes n1, n2, n3, n4
     n1 = np.random.randint(N)
@@ -81,11 +156,26 @@ def double_bridge(tour):
             order_idx += 1
         curr = tour[0, curr]
 
+    # Get successors before modification
+    a_succ = tour[0, abcd[0]]
+    b_succ = tour[0, abcd[1]]
+    c_succ = tour[0, abcd[2]]
+    d_succ = tour[0, abcd[3]]
+
+    # Calculate cost delta
+    # Edges removed: a->a', b->b', c->c', d->d'
+    # Edges added: a->c', b->d', c->a', d->b'
+    old_cost = D[abcd[0], a_succ] + D[abcd[1], b_succ] + D[abcd[2], c_succ] + D[abcd[3], d_succ]
+    new_cost = D[abcd[0], c_succ] + D[abcd[1], d_succ] + D[abcd[2], a_succ] + D[abcd[3], b_succ]
+    delta = new_cost - old_cost
+
     # Reconnect using array indexing: a->c', c->a', b->d', d->b'
     targets = np.array(
-        [tour[0, abcd[2]], tour[0, abcd[3]], tour[0, abcd[0]], tour[0, abcd[1]]],
+        [c_succ, d_succ, a_succ, b_succ],
         dtype=np.int64
     )
     
     tour[0, abcd] = targets
     tour[1, targets] = abcd
+
+    return delta
