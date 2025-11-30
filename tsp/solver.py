@@ -52,13 +52,13 @@ class MemeticATSP:
     def __init__(
         self,
         distance_matrix: np.ndarray,
-        population_size: int = 300,
-        offspring_size: int = None,
-        window_size: int = None,
-        mutation_rate: float = 0.25,
-        tournament_size: int = 5,
+        population_size: int = 100,
+        offspring_size: int = 300,
+        window_size: int = 50,
+        mutation_rate: float = 0.05,
+        tournament_size: int = 4,
         init_temp: float = 0.02,
-        search_iterations: int = 1,
+        search_iterations: int = 15,
     ):
         self.population = None
         self.fitness = None

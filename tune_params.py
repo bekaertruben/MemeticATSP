@@ -4,6 +4,7 @@ Hyperparameter tuning for MemeticATSP using Ray Tune.
 
 import os
 import numpy as np
+import ray
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune.search.optuna import OptunaSearch
@@ -11,7 +12,7 @@ from tsp.solver import MemeticATSP
 
 # Get the absolute path to the data file
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_PATH = os.path.join(SCRIPT_DIR, "tours", "tour250.csv")
+DATA_PATH = os.path.join(SCRIPT_DIR, "tours", "tour500.csv")
 
 
 def train_memetic(config):
@@ -32,9 +33,7 @@ def train_memetic(config):
     )
     
     ea.initialize()
-    
-    # Run for 50 iterations, reporting progress
-    for i in range(50):
+    for i in range(500):
         ea.step()
         # Report metrics to Ray Tune
         tune.report(metrics={
@@ -47,13 +46,13 @@ def train_memetic(config):
 def main():
     # Define the search space
     search_space = {
-        "population_size": tune.choice([50, 100, 200, 300, 500]),
-        "offspring_size": tune.choice([None, 25, 50, 100, 200]),
-        "window_size": tune.choice([None, 2, 5, 10, 20]),
+        "population_size": tune.randint(50, 301),
+        "offspring_size": tune.randint(50, 301),
+        "window_size": tune.randint(5, 51),
         "mutation_rate": tune.uniform(0.05, 0.5),
-        "tournament_size": tune.choice([2, 3, 5, 7]),
+        "tournament_size": tune.randint(2, 11),
         "init_temp": tune.loguniform(0.01, 1.0),
-        "search_iterations": tune.choice([1, 3, 5, 10]),
+        "search_iterations": tune.randint(1, 16),
     }
     
     # Use Optuna as the search algorithm
@@ -66,7 +65,7 @@ def main():
     scheduler = ASHAScheduler(
         metric="best_fitness",
         mode="min",
-        max_t=50,  # Max iterations
+        max_t=1000,  # Max iterations
         grace_period=10,  # Min iterations before pruning
         reduction_factor=2,
     )
@@ -78,7 +77,8 @@ def main():
         tune_config=tune.TuneConfig(
             search_alg=optuna_search,
             scheduler=scheduler,
-            num_samples=50,  # Number of trials to run
+            num_samples=200,  # Number of trials to run
+            max_concurrent_trials=10,  # Limit simultaneous trials
         ),
         run_config=tune.RunConfig(
             name="memetic_tsp_tuning",
@@ -98,17 +98,8 @@ def main():
         print(f"  {key}: {value}")
     print(f"\nBest fitness achieved: {best_result.metrics['best_fitness']:.2f}")
     print("=" * 60)
-    
-    # Optionally run a final verification with the best params
-    print("\nRunning verification with best parameters...")
-    D = np.loadtxt(DATA_PATH, delimiter=",")
-    ea = MemeticATSP(
-        distance_matrix=D,
-        **best_result.config
-    )
-    ea.run(50, verbose=True)
-    print(f"\nFinal best fitness: {ea.best_fitness:.2f}")
 
 
 if __name__ == "__main__":
+    ray.init(runtime_env={"excludes": ["*"]})  # Don't package the working directory
     main()

@@ -94,7 +94,7 @@ def find_3opt_move(tour, distance_matrix, candidates):
 
 
 @njit(cache=True)
-def precompute_candidates(distance_matrix, num_candidates=5, num_nn=5):
+def precompute_candidates(distance_matrix, num_candidates=10, num_nn=5):
     """
     Precompute candidate edges using Sinkhorn assignment and Nearest Neighbors.
     """
