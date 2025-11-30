@@ -25,21 +25,28 @@ def train_memetic(config):
         distance_matrix=D,
         population_size=config["population_size"],
         offspring_size=config.get("offspring_size"),
-        window_size=config.get("window_size"),
+        sharing_radius=config["sharing_radius"],
+        sharing_alpha=config["sharing_alpha"],
         mutation_rate=config["mutation_rate"],
         tournament_size=config["tournament_size"],
         init_temp=config["init_temp"],
-        search_iterations=config["search_iterations"],
+        search_iterations=(
+            config["search_iters_3opt"],
+            config["search_iters_oropt"],
+            config["search_iters_2opt"],
+        ),
     )
     
     ea.initialize()
-    for i in range(500):
+    i = 0
+    while True:
+        i += 1
         ea.step()
         # Report metrics to Ray Tune
         tune.report(metrics={
             "best_fitness": ea.best_fitness,
             "mean_fitness": ea.mean_fitness,
-            "iteration": i + 1,
+            "iteration": i,
         })
 
 
@@ -48,11 +55,14 @@ def main():
     search_space = {
         "population_size": tune.randint(50, 301),
         "offspring_size": tune.randint(50, 301),
-        "window_size": tune.randint(5, 51),
+        "sharing_radius": tune.uniform(0.05, 0.5),
+        "sharing_alpha": tune.uniform(0.5, 2.0),
         "mutation_rate": tune.uniform(0.05, 0.5),
         "tournament_size": tune.randint(2, 11),
         "init_temp": tune.loguniform(0.01, 1.0),
-        "search_iterations": tune.randint(1, 16),
+        "search_iters_3opt": tune.randint(0, 6),
+        "search_iters_oropt": tune.randint(0, 11),
+        "search_iters_2opt": tune.randint(0, 21),
     }
     
     # Use Optuna as the search algorithm
@@ -77,8 +87,9 @@ def main():
         tune_config=tune.TuneConfig(
             search_alg=optuna_search,
             scheduler=scheduler,
-            num_samples=200,  # Number of trials to run
+            num_samples=500,  # Number of trials to run
             max_concurrent_trials=10,  # Limit simultaneous trials
+            time_budget_s=5 * 60,  # Quit each trial after 5 minutes
         ),
         run_config=tune.RunConfig(
             name="memetic_tsp_tuning",
