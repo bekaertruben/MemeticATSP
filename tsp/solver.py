@@ -6,7 +6,7 @@ from tsp.representation import tour_cost, is_valid_tour, to_city_order, hamming_
 from tsp.greedy import greedy_cycle
 from tsp.crossover import EAX, EAX_single
 from tsp.mutation import double_bridge, reverse
-from tsp.search import precompute_candidates, lso_2opt, lso_oropt, lso_3opt, lso_lk
+from tsp.search import precompute_candidates, lso, LSO_2OPT, LSO_3OPT, LSO_OROPT
 from tsp.reporter import Reporter
 
 
@@ -19,9 +19,7 @@ config_spec = [
     ('mutation_rate', types.float64),
     ('tournament_size', types.int64),
     ('init_temp', types.float64),
-    ('search_iters_3opt', types.int64),
-    ('search_iters_oropt', types.int64),
-    ('search_iters_2opt', types.int64),
+    ('search_iters', types.int64[:]),
 ]
 
 @jitclass(config_spec)
@@ -37,9 +35,7 @@ class Config:
         mutation_rate: float,
         tournament_size: int,
         init_temp: float,
-        search_iters_3opt: int,
-        search_iters_oropt: int,
-        search_iters_2opt: int,
+        search_iters: np.ndarray,
     ):
         self.distance_matrix = distance_matrix
         self.candidates = candidates
@@ -49,9 +45,7 @@ class Config:
         self.mutation_rate = mutation_rate
         self.tournament_size = tournament_size
         self.init_temp = init_temp
-        self.search_iters_3opt = search_iters_3opt
-        self.search_iters_oropt = search_iters_oropt
-        self.search_iters_2opt = search_iters_2opt
+        self.search_iters = search_iters
 
 
 class MemeticATSP:
@@ -79,9 +73,7 @@ class MemeticATSP:
             mutation_rate = mutation_rate,
             tournament_size = tournament_size,
             init_temp = init_temp,
-            search_iters_3opt = search_iterations[0],
-            search_iters_oropt = search_iterations[1],
-            search_iters_2opt = search_iterations[2],
+            search_iters = np.array(search_iterations, dtype=np.int64),
         )
 
     def initialize(self):
@@ -203,9 +195,9 @@ def search(population, fitness, config):
     """
     for i in prange(population.shape[0]):
         change = 0.0
-        change += lso_3opt(population[i, ...], config.distance_matrix, config.candidates, config.search_iters_3opt)
-        change += lso_oropt(population[i, ...], config.distance_matrix, config.candidates, config.search_iters_oropt)
-        change += lso_2opt(population[i, ...], config.distance_matrix, config.candidates, config.search_iters_2opt)
+        change += lso(population[i, ...], config.distance_matrix, config.candidates, LSO_3OPT, config.search_iters[0])
+        change += lso(population[i, ...], config.distance_matrix, config.candidates, LSO_OROPT, config.search_iters[1])
+        change += lso(population[i, ...], config.distance_matrix, config.candidates, LSO_2OPT, config.search_iters[2])
 
         fitness[i] += change
         # fitness[i] = tour_cost(population[i], config.distance_matrix)

@@ -8,25 +8,118 @@ This module implements local search operators for TSP tours.
 These operators modify tours in-place and return the total gain.
 """
 
+# Method constants for lso function
+LSO_2OPT = 0
+LSO_3OPT = 1
+LSO_OROPT = 2
+
 
 @njit(cache=True)
-def lso_3opt(tour, distance_matrix, candidates, max_iter=100):
+def lso(tour, distance_matrix, candidates, method=LSO_2OPT, max_iter=100, max_segment_size=3):
     """
-    Iterated local search using 3-opt moves in-place.
+    Iterated local search using specified method in-place.
     
-    Repeatedly applies improving 3-opt moves until no improvement is found.
+    Args:
+        tour: Tour in (2, N) edge-map representation
+        distance_matrix: Distance matrix
+        candidates: Precomputed candidate edges
+        method: LSO_2OPT (0), LSO_3OPT (1), or LSO_OROPT (2)
+        max_iter: Maximum iterations
+        max_segment_size: Max segment size for Or-opt (only used when method=LSO_OROPT)
+    
+    Repeatedly applies improving moves until no improvement is found.
     Returns the total gain (negative value means improvement).
     """
     total_gain = 0.0
     
     for _ in range(max_iter):
-        gain = find_3opt_move(tour, distance_matrix, candidates)
+        if method == LSO_2OPT:
+            gain = find_2opt_move(tour, distance_matrix, candidates)
+        elif method == LSO_3OPT:
+            gain = find_3opt_move(tour, distance_matrix, candidates)
+        else:  # LSO_OROPT
+            gain = find_oropt_move(tour, distance_matrix, candidates, max_segment_size)
+        
         if gain < 0:
             total_gain += gain
         else:
             break  # No improvement found
     
     return total_gain
+
+
+@njit(cache=True)
+def precompute_candidates(distance_matrix, num_candidates=10, num_nn=5):
+    """
+    Precompute candidate edges using Sinkhorn assignment and Nearest Neighbors.
+    """
+    avg_dist = np.mean(distance_matrix)
+    temp = avg_dist / 50.0
+    S = sinkhorn_assignment(distance_matrix, temp)
+    
+    n = distance_matrix.shape[0]
+    total_candidates = num_candidates + num_nn
+    candidates = np.zeros((n, total_candidates), dtype=np.int32)
+    
+    for i in range(n):
+        # Sort descending
+        sinkhorn_indices = np.argsort(S[i, :])[::-1]
+        # Sort ascending (nearest neighbors)
+        nn_indices = np.argsort(distance_matrix[i, :])
+        
+        count = 0
+        
+        # Add Sinkhorn candidates
+        for idx in sinkhorn_indices:
+            if idx == i:
+                continue
+            if count >= num_candidates:
+                break
+            candidates[i, count] = idx
+            count += 1
+            
+        # Add Nearest Neighbor candidates
+        for idx in nn_indices:
+            if idx == i:
+                continue
+            if count >= total_candidates:
+                break
+            
+            # Check for duplicates
+            is_duplicate = False
+            for k in range(count):
+                if candidates[i, k] == idx:
+                    is_duplicate = True
+                    break
+            
+            if not is_duplicate:
+                candidates[i, count] = idx
+                count += 1
+        
+    return candidates
+
+
+@njit(cache=True)
+def sinkhorn_assignment(D, temperature, max_iter=1000, threshold=1e-9):
+    """
+    Solve the soft assignment problem using Sinkhorn-Knopp algorithm.
+    """
+    K = np.exp(-D / temperature) # Gibbs Kernel
+    
+    u = np.ones(D.shape[0])
+    v = np.ones(D.shape[1])
+    
+    for _ in range(max_iter):
+        u_prev = u.copy()
+        u = 1.0 / (K @ v)
+        v = 1.0 / (K.T @ u)
+        
+        if np.allclose(u, u_prev, atol=threshold):
+            break
+            
+    x_matrix = np.diag(u) @ K @ np.diag(v)
+    
+    return x_matrix
 
 
 @njit(cache=True)
@@ -91,27 +184,6 @@ def find_3opt_move(tour, distance_matrix, candidates):
                 return change
     
     return 0.0
-
-
-@njit(cache=True)
-def lso_2opt(tour, distance_matrix, candidates, max_iter=100):
-    """
-    Iterated local search using 2-opt moves in-place.
-    
-    For ATSP, uses crossing-edge elimination without segment reversal.
-    Repeatedly applies improving 2-opt moves until no improvement is found.
-    Returns the total gain (negative value means improvement).
-    """
-    total_gain = 0.0
-    
-    for _ in range(max_iter):
-        gain = find_2opt_move(tour, distance_matrix, candidates)
-        if gain < 0:
-            total_gain += gain
-        else:
-            break  # No improvement found
-    
-    return total_gain
 
 
 @njit(cache=True)
@@ -183,28 +255,6 @@ def find_2opt_move(tour, distance_matrix, candidates):
             curr_node = succ[curr_node]
     
     return 0.0
-
-
-@njit(cache=True)
-def lso_oropt(tour, distance_matrix, candidates, max_iter=100, max_segment_size=3):
-    """
-    Iterated local search using Or-opt moves in-place.
-    
-    Or-opt relocates segments of 1, 2, or 3 consecutive cities to a new position.
-    This preserves traversal direction, making it ATSP-compatible.
-    Repeatedly applies improving Or-opt moves until no improvement is found.
-    Returns the total gain (negative value means improvement).
-    """
-    total_gain = 0.0
-    
-    for _ in range(max_iter):
-        gain = find_oropt_move(tour, distance_matrix, candidates, max_segment_size)
-        if gain < 0:
-            total_gain += gain
-        else:
-            break  # No improvement found
-    
-    return total_gain
 
 
 @njit(cache=True)
@@ -308,77 +358,3 @@ def find_oropt_move(tour, distance_matrix, candidates, max_segment_size=3):
                 seg_nodes[seg_size] = seg_end
     
     return 0.0
-
-
-@njit(cache=True)
-def precompute_candidates(distance_matrix, num_candidates=10, num_nn=5):
-    """
-    Precompute candidate edges using Sinkhorn assignment and Nearest Neighbors.
-    """
-    avg_dist = np.mean(distance_matrix)
-    temp = avg_dist / 50.0
-    S = sinkhorn_assignment(distance_matrix, temp)
-    
-    n = distance_matrix.shape[0]
-    total_candidates = num_candidates + num_nn
-    candidates = np.zeros((n, total_candidates), dtype=np.int32)
-    
-    for i in range(n):
-        # Sort descending
-        sinkhorn_indices = np.argsort(S[i, :])[::-1]
-        # Sort ascending (nearest neighbors)
-        nn_indices = np.argsort(distance_matrix[i, :])
-        
-        count = 0
-        
-        # Add Sinkhorn candidates
-        for idx in sinkhorn_indices:
-            if idx == i:
-                continue
-            if count >= num_candidates:
-                break
-            candidates[i, count] = idx
-            count += 1
-            
-        # Add Nearest Neighbor candidates
-        for idx in nn_indices:
-            if idx == i:
-                continue
-            if count >= total_candidates:
-                break
-            
-            # Check for duplicates
-            is_duplicate = False
-            for k in range(count):
-                if candidates[i, k] == idx:
-                    is_duplicate = True
-                    break
-            
-            if not is_duplicate:
-                candidates[i, count] = idx
-                count += 1
-        
-    return candidates
-
-
-@njit(cache=True)
-def sinkhorn_assignment(D, temperature, max_iter=1000, threshold=1e-9):
-    """
-    Solve the soft assignment problem using Sinkhorn-Knopp algorithm.
-    """
-    K = np.exp(-D / temperature) # Gibbs Kernel
-    
-    u = np.ones(D.shape[0])
-    v = np.ones(D.shape[1])
-    
-    for _ in range(max_iter):
-        u_prev = u.copy()
-        u = 1.0 / (K @ v)
-        v = 1.0 / (K.T @ u)
-        
-        if np.allclose(u, u_prev, atol=threshold):
-            break
-            
-    x_matrix = np.diag(u) @ K @ np.diag(v)
-    
-    return x_matrix

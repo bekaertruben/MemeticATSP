@@ -51,7 +51,7 @@ class Reporter:
             self.csv_file.write(f"# mutation_rate,{config.mutation_rate}\n")
             self.csv_file.write(f"# tournament_size,{config.tournament_size}\n")
             self.csv_file.write(f"# init_temp,{config.init_temp}\n")
-            self.csv_file.write(f"# search_iterations,{(config.search_iters_3opt, config.search_iters_oropt, config.search_iters_2opt)}\n")
+            self.csv_file.write(f"# search_iterations,{tuple(config.search_iters)}\n")
         
         self.csv_writer.writerow([
             "generation",
