@@ -94,6 +94,218 @@ def find_3opt_move(tour, distance_matrix, candidates):
 
 
 @njit(cache=True)
+def lso_2opt(tour, distance_matrix, candidates, max_iter=100):
+    """
+    Iterated local search using 2-opt moves in-place.
+    
+    For ATSP, uses crossing-edge elimination without segment reversal.
+    Repeatedly applies improving 2-opt moves until no improvement is found.
+    Returns the total gain (negative value means improvement).
+    """
+    total_gain = 0.0
+    
+    for _ in range(max_iter):
+        gain = find_2opt_move(tour, distance_matrix, candidates)
+        if gain < 0:
+            total_gain += gain
+        else:
+            break  # No improvement found
+    
+    return total_gain
+
+
+@njit(cache=True)
+def find_2opt_move(tour, distance_matrix, candidates):
+    """
+    Find and apply an improving 2-opt move for ATSP.
+    
+    Replaces edges (a -> a') and (b -> b') with (a -> b) and (a' -> b'),
+    reversing the segment from a' to b. For ATSP, the cost of traversing
+    the reversed segment in the opposite direction must be calculated.
+    
+    Modifies tour in-place if an improving move is found.
+    Returns the gain (negative if improved, 0 otherwise).
+    """
+    n = tour.shape[1]
+    succ = tour[0]
+    pred = tour[1]
+
+    # Start from a random node to avoid bias
+    start_node = np.random.randint(n)
+
+    for i in range(n):
+        a = (start_node + i) % n
+        a_prime = succ[a]
+        
+        # Traverse from a' and accumulate reversal cost incrementally
+        # reversal_delta = cost of reversed edges - cost of original edges
+        reversal_delta = 0.0
+        prev_node = a_prime
+        curr_node = succ[a_prime]
+        
+        while curr_node != a:
+            # Update reversal cost: edge prev_node -> curr_node becomes curr_node -> prev_node
+            reversal_delta += distance_matrix[curr_node, prev_node] - distance_matrix[prev_node, curr_node]
+            
+            b = curr_node
+            b_prime = succ[b]
+            
+            # Check if b is a candidate for a
+            is_candidate = False
+            for j in range(candidates.shape[1]):
+                if candidates[a, j] == b:
+                    is_candidate = True
+                    break
+            
+            if is_candidate and b_prime != a:
+                # Compute total change
+                change = (distance_matrix[a, b] + distance_matrix[a_prime, b_prime]
+                        - distance_matrix[a, a_prime] - distance_matrix[b, b_prime]
+                        + reversal_delta)
+                
+                if change < 0:
+                    # Reverse the path from a' to b by swapping succ/pred
+                    node = a_prime
+                    while node != b_prime:
+                        next_node = succ[node]
+                        succ[node], pred[node] = pred[node], succ[node]
+                        node = next_node
+                    
+                    # Reconnect: a -> b, a' -> b'
+                    succ[a] = b
+                    pred[b] = a
+                    succ[a_prime] = b_prime
+                    pred[b_prime] = a_prime
+                    
+                    return change
+            
+            prev_node = curr_node
+            curr_node = succ[curr_node]
+    
+    return 0.0
+
+
+@njit(cache=True)
+def lso_oropt(tour, distance_matrix, candidates, max_iter=100, max_segment_size=3):
+    """
+    Iterated local search using Or-opt moves in-place.
+    
+    Or-opt relocates segments of 1, 2, or 3 consecutive cities to a new position.
+    This preserves traversal direction, making it ATSP-compatible.
+    Repeatedly applies improving Or-opt moves until no improvement is found.
+    Returns the total gain (negative value means improvement).
+    """
+    total_gain = 0.0
+    
+    for _ in range(max_iter):
+        gain = find_oropt_move(tour, distance_matrix, candidates, max_segment_size)
+        if gain < 0:
+            total_gain += gain
+        else:
+            break  # No improvement found
+    
+    return total_gain
+
+
+@njit(cache=True)
+def find_oropt_move(tour, distance_matrix, candidates, max_segment_size=3):
+    """
+    Find and apply an improving Or-opt move for a tour.
+    
+    Relocates a segment of 1 to max_segment_size consecutive cities to a new position.
+    The segment is removed from its current location and inserted after a target node.
+    Direction is preserved, making this suitable for asymmetric TSP.
+    
+    Modifies tour in-place if an improving move is found.
+    Returns the gain (negative if improved, 0 otherwise).
+    """
+    n = tour.shape[1]
+    succ = tour[0]
+    pred = tour[1]
+
+    # Start from a random node to avoid bias
+    start_node = np.random.randint(n)
+
+    for i in range(n):
+        seg_start = (start_node + i) % n
+        seg_pred = pred[seg_start]  # Node before segment
+        
+        # Try different segment sizes (1, 2, 3)
+        seg_end = seg_start
+        for seg_size in range(1, max_segment_size + 1):
+            seg_succ = succ[seg_end]  # Node after segment
+            
+            # Skip if segment wraps around to start
+            if seg_succ == seg_start:
+                break
+            
+            # Cost of removing segment from current position
+            # Remove edges: seg_pred -> seg_start and seg_end -> seg_succ
+            # Add edge: seg_pred -> seg_succ
+            removal_cost = (distance_matrix[seg_pred, seg_succ]
+                          - distance_matrix[seg_pred, seg_start]
+                          - distance_matrix[seg_end, seg_succ])
+            
+            # Try inserting segment after each candidate node
+            for j in range(candidates.shape[1]):
+                target = candidates[seg_start, j]
+                
+                # Skip if target is part of the segment or adjacent to it
+                if target == seg_pred or target == seg_succ:
+                    continue
+                
+                # Check if target is in the segment
+                in_segment = False
+                node = seg_start
+                for _ in range(seg_size):
+                    if node == target:
+                        in_segment = True
+                        break
+                    node = succ[node]
+                if in_segment:
+                    continue
+                
+                target_succ = succ[target]
+                
+                # Skip if target_succ is part of the segment
+                if target_succ == seg_start:
+                    continue
+                
+                # Cost of inserting segment after target
+                # Remove edge: target -> target_succ
+                # Add edges: target -> seg_start and seg_end -> target_succ
+                insertion_cost = (distance_matrix[target, seg_start]
+                                + distance_matrix[seg_end, target_succ]
+                                - distance_matrix[target, target_succ])
+                
+                change = removal_cost + insertion_cost
+                
+                if change < 0:
+                    # Apply the Or-opt move in-place
+                    
+                    # Step 1: Remove segment from current position
+                    # Connect seg_pred directly to seg_succ
+                    succ[seg_pred] = seg_succ
+                    pred[seg_succ] = seg_pred
+                    
+                    # Step 2: Insert segment after target
+                    # target -> seg_start -> ... -> seg_end -> target_succ
+                    succ[target] = seg_start
+                    pred[seg_start] = target
+                    succ[seg_end] = target_succ
+                    pred[target_succ] = seg_end
+                    
+                    return change
+            
+            # Move to next segment size
+            seg_end = succ[seg_end]
+            if seg_end == seg_start:
+                break
+    
+    return 0.0
+
+
+@njit(cache=True)
 def precompute_candidates(distance_matrix, num_candidates=10, num_nn=5):
     """
     Precompute candidate edges using Sinkhorn assignment and Nearest Neighbors.
