@@ -6,7 +6,7 @@ from tsp.representation import tour_cost, is_valid_tour, to_city_order, hamming_
 from tsp.greedy import greedy_cycle
 from tsp.crossover import EAX, EAX_single
 from tsp.mutation import double_bridge, reverse
-from tsp.search import lso_2opt, lso_oropt, lso_3opt, precompute_candidates
+from tsp.search import precompute_candidates, lso_2opt, lso_oropt, lso_3opt, lso_lk
 from tsp.reporter import Reporter
 
 
@@ -202,10 +202,11 @@ def search(population, fitness, config):
     Updates fitness values in-place after local search.
     """
     for i in prange(population.shape[0]):
-        change = lso_3opt(population[i, ...], config.distance_matrix, config.candidates, config.search_iters_3opt)
+        change = 0.0
+        change += lso_3opt(population[i, ...], config.distance_matrix, config.candidates, config.search_iters_3opt)
         change += lso_oropt(population[i, ...], config.distance_matrix, config.candidates, config.search_iters_oropt)
         change += lso_2opt(population[i, ...], config.distance_matrix, config.candidates, config.search_iters_2opt)
-        
+
         fitness[i] += change
         # fitness[i] = tour_cost(population[i], config.distance_matrix)
         # assert is_valid_tour(population[i]), "Invalid tour after local search."

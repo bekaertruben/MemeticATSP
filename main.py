@@ -2,7 +2,7 @@ import numpy as np
 from tsp.solver import MemeticATSP
 from tsp.representation import is_valid_tour, to_city_order, tour_cost
 
-D = np.loadtxt("tours/tour1000.csv", delimiter=",")
+D = np.loadtxt("tours/tour500.csv", delimiter=",")
 
 ea = MemeticATSP(D)
 ea.run(200)

@@ -226,12 +226,17 @@ def find_oropt_move(tour, distance_matrix, candidates, max_segment_size=3):
     # Start from a random node to avoid bias
     start_node = np.random.randint(n)
 
+    # Pre-allocate array for segment nodes (max 3 nodes)
+    seg_nodes = np.zeros(max_segment_size, dtype=np.int64)
+
     for i in range(n):
         seg_start = (start_node + i) % n
         seg_pred = pred[seg_start]  # Node before segment
         
         # Try different segment sizes (1, 2, 3)
         seg_end = seg_start
+        seg_nodes[0] = seg_start
+        
         for seg_size in range(1, max_segment_size + 1):
             seg_succ = succ[seg_end]  # Node after segment
             
@@ -250,24 +255,22 @@ def find_oropt_move(tour, distance_matrix, candidates, max_segment_size=3):
             for j in range(candidates.shape[1]):
                 target = candidates[seg_start, j]
                 
-                # Skip if target is part of the segment or adjacent to it
+                # Skip if target is adjacent to segment
                 if target == seg_pred or target == seg_succ:
                     continue
                 
-                # Check if target is in the segment
+                # Check if target is in the segment using pre-collected nodes
                 in_segment = False
-                node = seg_start
-                for _ in range(seg_size):
-                    if node == target:
+                for k in range(seg_size):
+                    if seg_nodes[k] == target:
                         in_segment = True
                         break
-                    node = succ[node]
                 if in_segment:
                     continue
                 
                 target_succ = succ[target]
                 
-                # Skip if target_succ is part of the segment
+                # Skip if target_succ is the segment start (would create invalid tour)
                 if target_succ == seg_start:
                     continue
                 
@@ -297,10 +300,12 @@ def find_oropt_move(tour, distance_matrix, candidates, max_segment_size=3):
                     
                     return change
             
-            # Move to next segment size
+            # Move to next segment size - update seg_end and record node
             seg_end = succ[seg_end]
             if seg_end == seg_start:
                 break
+            if seg_size < max_segment_size:
+                seg_nodes[seg_size] = seg_end
     
     return 0.0
 
