@@ -4,7 +4,7 @@ from numba.experimental import jitclass
 from numba import types
 from tsp.representation import tour_cost, is_valid_tour, to_city_order, hamming_distance
 from tsp.greedy import greedy_cycle
-from tsp.crossover import EAX, GPX
+from tsp.crossover import EAX
 from tsp.mutation import double_bridge, reverse
 from tsp.search import precompute_candidates, lso, LSO_2OPT, LSO_3OPT, LSO_OROPT
 from tsp.reporter import Reporter
@@ -205,7 +205,7 @@ def search(population, fitness, config):
         # fitness[i] = tour_cost(population[i], config.distance_matrix)
         # assert is_valid_tour(population[i]), "Invalid tour after local search."
 
-@njit(cache=True)
+# @njit(cache=True)
 def generate_offspring(population, pop_fitness, config):
     """
     Generate offspring using crossover from the population.

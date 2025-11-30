@@ -9,6 +9,9 @@ CROSSOVER OPERATORS:
 This module implements crossover operators for ATSP tours:
 1. EAX (Edge Assembly Crossover)
 2. GPX (Generalized Partition Crossover)
+3. MPX (Maximal Preservative Crossover)
+4. ERX (Edge Recombination Crossover)
+5. SCX (Sequential Constructive Crossover)
 """
 
 @njit(cache=True)
@@ -114,7 +117,7 @@ def eax_apply_eset(tour, cycle_nodes, parent2):
     tour[1] = pred
 
 
-@njit(cache=True)
+# @njit(cache=True)
 def EAX(parent1, parent2, distance_matrix, num_trials=1, num_cycles_to_select=2):
     """
     Edge Assembly Crossover (EAX) operator for ATSP tours.
@@ -171,7 +174,8 @@ def EAX(parent1, parent2, distance_matrix, num_trials=1, num_cycles_to_select=2)
         
         # Step 4: Repair if fragmented
         if not is_valid_tour(tour):
-            tour = repair_tour(tour, distance_matrix)
+            repair_tour(tour, distance_matrix)
+        assert is_valid_tour(tour), "Repaired tour is still invalid!"
         
         # Build child tour
         child = tour
@@ -188,120 +192,3 @@ def EAX(parent1, parent2, distance_matrix, num_trials=1, num_cycles_to_select=2)
         return child, tour_cost(child, distance_matrix)
     
     return best_child, best_cost
-
-
-@njit(cache=True)
-def GPX(parent1, parent2, distance_matrix):
-    """
-    Generalized Partition Crossover (GPX) for ATSP tours.
-    
-    GPX preserves common edges between parents and resolves differing
-    edges by constructing a valid tour through greedy patching.
-    
-    The algorithm:
-    1. Copy all common edges (edges that exist in both parents)
-    2. For differing edges, use a greedy nearest-neighbor approach
-       to connect the fragments while respecting tour constraints
-    
-    Unlike EAX, GPX:
-    - Is deterministic (no random trials)
-    - Preserves all common substructures from both parents
-    - Is simpler and faster
-    - Is less exploratory but more stable
-    
-    Args:
-        parent1: First parent tour, shape (2, N)
-        parent2: Second parent tour, shape (2, N)  
-        distance_matrix: NxN asymmetric cost matrix
-    
-    Returns:
-        child: The offspring tour, shape (2, N)
-        cost: Total cost of the child (float) computed by tour_cost
-    """
-    N = parent1.shape[1]
-    
-    # Check if parents are identical
-    if np.array_equal(parent1[0], parent2[0]):
-        child = parent1.copy()
-        cost = tour_cost(child, distance_matrix)
-        return child, cost
-    
-    # Initialize tour (succ + pred)
-    tour = np.empty((2, N), dtype=np.int64)
-    tour[0] = np.full(N, -1, dtype=np.int64)
-    tour[1] = np.full(N, -1, dtype=np.int64)
-    
-    # Step 1: Copy all common edges
-    for i in range(N):
-        if parent1[0, i] == parent2[0, i]:
-            j = parent1[0, i]
-            tour[0, i] = j
-            tour[1, j] = i
-    
-    # Step 2: For nodes without outgoing edges, choose the better parent edge
-    # if it doesn't create a conflict
-    for i in range(N):
-        if tour[0, i] >= 0:
-            continue  # Already has outgoing edge
-        
-        # Try parent1's edge first
-        p1_next = parent1[0, i]
-        p2_next = parent2[0, i]
-        
-        # Check which destination is available (doesn't have incoming edge yet)
-        p1_available = tour[1, p1_next] < 0
-        p2_available = tour[1, p2_next] < 0
-        
-        if p1_available and p2_available:
-            # Both available, choose cheaper edge
-            if distance_matrix[i, p1_next] <= distance_matrix[i, p2_next]:
-                tour[0, i] = p1_next
-                tour[1, p1_next] = i
-            else:
-                tour[0, i] = p2_next
-                tour[1, p2_next] = i
-        elif p1_available:
-            tour[0, i] = p1_next
-            tour[1, p1_next] = i
-        elif p2_available:
-            tour[0, i] = p2_next
-            tour[1, p2_next] = i
-        # If neither is available, we'll handle it in the repair step
-    
-    # Step 3: Greedy repair for remaining unassigned edges
-    # Find nodes without outgoing edges and nodes without incoming edges
-    for iteration in range(N):
-        # Find a node without outgoing edge
-        source = -1
-        for i in range(N):
-            if tour[0, i] < 0:
-                source = i
-                break
-        
-        if source < 0:
-            break  # All nodes have outgoing edges
-        
-        # Find best available target (node without incoming edge)
-        best_target = -1
-        best_cost = np.inf
-        
-        for j in range(N):
-            if tour[1, j] < 0 and j != source:
-                cost = distance_matrix[source, j]
-                if cost < best_cost:
-                    best_cost = cost
-                    best_target = j
-        
-        if best_target >= 0:
-            tour[0, source] = best_target
-            tour[1, best_target] = source
-    
-    # Step 4: Final check - repair any remaining issues
-    if not is_valid_tour(tour):
-        tour = repair_tour(tour, distance_matrix)
-    
-    # Build child tour
-    child = tour
-    
-    cost = tour_cost(child, distance_matrix)
-    return child, cost
