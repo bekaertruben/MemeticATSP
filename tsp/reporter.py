@@ -48,7 +48,7 @@ class Reporter:
             self.csv_file.write(f"# population_size,{config.population_size}\n")
             self.csv_file.write(f"# offspring_size,{config.offspring_size}\n")
             self.csv_file.write(f"# window_size,{config.window_size}\n")
-            self.csv_file.write(f"# mutation_rate,{config.mutation_rate}\n")
+            self.csv_file.write(f"# mutation_rates,{tuple(config.mutation_rates)}\n")
             self.csv_file.write(f"# tournament_size,{config.tournament_size}\n")
             self.csv_file.write(f"# init_temp,{config.init_temp}\n")
             self.csv_file.write(f"# search_iterations,{tuple(config.search_iters)}\n")

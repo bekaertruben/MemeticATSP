@@ -27,7 +27,9 @@ def train_memetic(config):
         offspring_size=config.get("offspring_size"),
         sharing_radius=config["sharing_radius"],
         sharing_alpha=config["sharing_alpha"],
-        mutation_rate=config["mutation_rate"],
+        # Convert scalar total mutation probability to per-operator absolute
+        # probabilities (even split across both operators).
+        mutation_probs=(config["mutation_prob_total"]/2.0, config["mutation_prob_total"]/2.0),
         tournament_size=config["tournament_size"],
         init_temp=config["init_temp"],
         search_iterations=(
@@ -57,7 +59,8 @@ def main():
         "offspring_size": tune.randint(50, 301),
         "sharing_radius": tune.uniform(0.05, 0.5),
         "sharing_alpha": tune.uniform(0.5, 2.0),
-        "mutation_rate": tune.uniform(0.05, 0.5),
+        # Total mutation probability to be split across available operators.
+        "mutation_prob_total": tune.uniform(0.05, 0.5),
         "tournament_size": tune.randint(2, 11),
         "init_temp": tune.loguniform(0.01, 1.0),
         "search_iters_3opt": tune.randint(0, 6),

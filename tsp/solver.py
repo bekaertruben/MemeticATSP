@@ -4,7 +4,7 @@ from numba.experimental import jitclass
 from numba import types
 from tsp.representation import tour_cost, is_valid_tour, to_city_order, hamming_distance
 from tsp.greedy import greedy_cycle
-from tsp.crossover import EAX, EAX_single
+from tsp.crossover import EAX, GPX
 from tsp.mutation import double_bridge, reverse
 from tsp.search import precompute_candidates, lso, LSO_2OPT, LSO_3OPT, LSO_OROPT
 from tsp.reporter import Reporter
@@ -16,7 +16,7 @@ config_spec = [
     ('population_size', types.int64),
     ('offspring_size', types.int64),
     ('window_size', types.int64),
-    ('mutation_rate', types.float64),
+    ('mutation_rates', types.float64[:]),
     ('tournament_size', types.int64),
     ('init_temp', types.float64),
     ('search_iters', types.int64[:]),
@@ -32,19 +32,19 @@ class Config:
         population_size: int,
         offspring_size: int,
         window_size: int,
-        mutation_rate: float,
+        mutation_rates: tuple,
         tournament_size: int,
         init_temp: float,
-        search_iters: np.ndarray,
+        search_iters: tuple,
     ):
         self.distance_matrix = distance_matrix
         self.candidates = candidates
         self.population_size = population_size
         self.offspring_size = offspring_size
-        self.window_size = window_size
-        self.mutation_rate = mutation_rate
-        self.tournament_size = tournament_size
         self.init_temp = init_temp
+        self.tournament_size = tournament_size
+        self.window_size = window_size
+        self.mutation_rates = mutation_rates
         self.search_iters = search_iters
 
 
@@ -54,26 +54,26 @@ class MemeticATSP:
         distance_matrix: np.ndarray,
         population_size: int = 100,
         offspring_size: int = 100,
-        window_size: int = 50,
-        mutation_rate: float = 0.33,
-        tournament_size: int = 4,
         init_temp: float = 0.1,
-        search_iterations: tuple = (5, 5, 5),  # (3opt, oropt, 2opt)
+        tournament_size: int = 4,
+        window_size: int = 5,
+        mutation_rates: tuple = (0.15, 0.15), # (double_bridge, reverse)
+        search_iterations: tuple = (5, 0, 5),  # (3opt, oropt, 2opt)
     ):
         self.population = None
         self.fitness = None
         self.config = None
         self.generation = 0
         self.config = Config(
-            distance_matrix = distance_matrix,
-            candidates = precompute_candidates(distance_matrix),
-            population_size = population_size,
-            offspring_size = offspring_size if offspring_size is not None else population_size,
-            window_size = window_size if window_size is not None else max(1, population_size // 10),
-            mutation_rate = mutation_rate,
-            tournament_size = tournament_size,
-            init_temp = init_temp,
-            search_iters = np.array(search_iterations, dtype=np.int64),
+            distance_matrix=distance_matrix,
+            candidates=precompute_candidates(distance_matrix, num_candidates=20),
+            population_size=population_size,
+            offspring_size=offspring_size,
+            init_temp=init_temp,
+            window_size=window_size,
+            tournament_size=tournament_size,
+            mutation_rates=np.array(mutation_rates, dtype=np.float64),
+            search_iters=np.array(search_iterations, dtype=np.int64),
         )
 
     def initialize(self):
@@ -93,7 +93,11 @@ class MemeticATSP:
         offspring, offspring_fitness = generate_offspring(
             self.population, self.fitness, self.config
         )
+        mutation(offspring, offspring_fitness, self.config)
+        search(offspring, offspring_fitness, self.config)
+
         search(self.population, self.fitness, self.config)
+
         self.population, self.fitness = elimination(
             self.population, self.fitness, offspring, offspring_fitness, self.config
         )
@@ -178,14 +182,12 @@ def mutation(population, fitness, config):
     Updates fitness values in-place after mutation.
     """
     for i in prange(population.shape[0]):
-        if np.random.rand() < config.mutation_rate:
-            if np.random.rand() < 0.5:
-                delta = double_bridge(population[i, ...], config.distance_matrix)
-            else:
-                delta = reverse(population[i, ...], config.distance_matrix)
-            fitness[i] += delta
-            # fitness[i] = tour_cost(population[i], config.distance_matrix)
-            # assert is_valid_tour(population[i]), "Invalid tour after mutation."
+        if np.random.rand() < config.mutation_rates[0]:
+            fitness[i] += double_bridge(population[i, ...], config.distance_matrix)
+        if np.random.rand() < config.mutation_rates[1]:
+            fitness[i] += reverse(population[i, ...], config.distance_matrix)
+        # fitness[i] = tour_cost(population[i], config.distance_matrix)
+        # assert is_valid_tour(population[i]), "Invalid tour after reverse mutation."
 
 @njit(cache=True, parallel=True)
 def search(population, fitness, config):
@@ -217,14 +219,11 @@ def generate_offspring(population, pop_fitness, config):
     for i in prange(config.offspring_size):
         parent1 = tournament_selection(population, pop_fitness, config)
         parent2 = tournament_selection(population, pop_fitness, config)
-        # child = EAX(parent1, parent2, config.distance_matrix, num_trials=10, num_cycles_to_select=5)
-        child = EAX_single(parent1, parent2, config.distance_matrix, num_cycles_to_select=2)
+        child, cost = EAX(parent1, parent2, config.distance_matrix)
+        # child, cost = GPX(parent1, parent2, config.distance_matrix)
         # assert is_valid_tour(child), "Generated invalid tour in crossover."
         offspring[i] = child
-        offspring_fitness[i] = tour_cost(child, config.distance_matrix)
-    
-    mutation(offspring, offspring_fitness, config)
-    search(offspring, offspring_fitness, config)
+        offspring_fitness[i] = cost
 
     return offspring, offspring_fitness
 
