@@ -7,6 +7,7 @@ from tsp.greedy import greedy_cycle
 from tsp.crossover import EAX, EAX_single
 from tsp.mutation import double_bridge
 from tsp.search import lso_3opt, precompute_candidates
+from tsp.reporter import Reporter
 
 
 config_spec = [
@@ -98,25 +99,29 @@ class MemeticATSP:
         )
         self.generation += 1
     
-    def log_status(self):
-        """Log the current status of the EA."""
-        print(
-            f"Generation {self.generation}: "
-            f"Best = {self.best_fitness:.2f}, "
-            f"Mean = {self.mean_fitness:.2f}"
-        )
-
-    def run(self, num_generations: int, verbose: bool = True):
-        """Run the EA for a given number of generations."""
+    def run(self, num_generations: int, reporter: Reporter = None):
+        """Run the EA for a given number of generations.
+        
+        Args:
+            num_generations: Number of generations to run.
+            reporter: Optional Reporter instance for logging. If None, a default
+                      reporter will be created.
+        """
+        if reporter is None:
+            reporter = Reporter()
+        
         if self.population is None:
             self.initialize()
-            if verbose:
-                self.log_status()
         
-        for _ in range(num_generations):
-            self.step()
-            if verbose:
-                self.log_status()
+        reporter.start(self)
+        try:
+            reporter.log(self)
+            
+            for _ in range(num_generations):
+                self.step()
+                reporter.log(self)
+        finally:
+            reporter.stop()
                 
     @property
     def best_fitness(self) -> float:
