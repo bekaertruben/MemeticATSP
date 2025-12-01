@@ -3,7 +3,7 @@ from numba import njit, prange
 from typing import NamedTuple
 from tsp.representation import tour_cost, is_valid_tour, to_city_order, hamming_distance
 from tsp.greedy import greedy_cycle
-from tsp.crossover import EAX
+from tsp.crossover import MPX, EAX
 from tsp.mutation import double_bridge, reverse
 from tsp.search import precompute_candidates, lso, LSO_2OPT, LSO_3OPT, LSO_OROPT
 from tsp.reporter import Reporter
@@ -192,6 +192,7 @@ def generate_offspring(population, pop_fitness, config):
     for i in prange(config.offspring_size):
         parent1 = tournament_selection(population, pop_fitness, config)
         parent2 = tournament_selection(population, pop_fitness, config)
+        # child, cost = MPX(parent1, parent2, config.distance_matrix)
         child, cost = EAX(parent1, parent2, config.distance_matrix)
         # assert is_valid_tour(child), "Generated invalid tour in crossover."
         offspring[i] = child

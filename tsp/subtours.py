@@ -55,12 +55,12 @@ def make_subtour(tour, distance_matrix):
 
 
 @njit(cache=True)
-def initialize_subtour(self):
+def initialize_subtours(self):
     _initialize(self.tour, self.subtours, self.subtour_ids)
 
 
 @njit(cache=True)
-def repair_subtour(self):
+def repair_tour(self):
     _repair(self.tour, self.distance_matrix, self.subtours, self.subtour_ids)
 
 
@@ -226,7 +226,7 @@ def _merge_indices(n):
         yield (0, 1)
     return
 
-    # Balanced merging:
+    # Balanced merging: (this appears to cause errors)
     size = n
     while size > 1:
         i = 0

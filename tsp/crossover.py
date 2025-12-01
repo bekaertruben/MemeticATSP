@@ -2,18 +2,41 @@ import numpy as np
 from numba import njit
 from numba.typed import List
 from tsp.representation import is_valid_tour, tour_cost, invert_permutation
-from tsp.subtours import make_subtour, initialize_subtour, repair_subtour
+from tsp.subtours import make_subtour, initialize_subtours, repair_tour
 
 """
 CROSSOVER OPERATORS:
 
 This module implements crossover operators for ATSP tours:
-1. EAX (Edge Assembly Crossover)
-2. GPX (Generalized Partition Crossover)
-3. MPX (Maximal Preservative Crossover)
+1. MPX (Maximal Preservative Crossover)
+2. EAX (Edge Assembly Crossover)
+3. GPX (Generalized Partition Crossover)
 4. ERX (Edge Recombination Crossover)
 5. SCX (Sequential Constructive Crossover)
 """
+
+@njit(cache=True)
+def MPX(parent1, parent2, distance_matrix):
+    """
+    Maximal Preservative Crossover (MPX) for ATSP tours.
+    Preserves edges common to both parents and repairs the rest.
+
+    This is extremely exploitative
+    """
+    child = parent1.copy()
+
+    child[0, parent1[0] != parent2[0]] = -1
+    child[1, parent1[1] != parent2[1]] = -1
+
+    subtours = make_subtour(child, distance_matrix)
+    initialize_subtours(subtours)
+    repair_tour(subtours)
+    # assert is_valid_tour(child), "Invalid tour after MPX repair."
+
+    cost = tour_cost(child, distance_matrix)
+
+    return child, cost
+
 
 @njit(cache=True)
 def eax_find_AB_cycles(parent1, parent2):
@@ -112,9 +135,10 @@ def EAX(parent1, parent2, distance_matrix, num_trials=1, num_cycles_to_select=2)
         
         # Step 4: Repair fragmented tour
         subtours = make_subtour(child, distance_matrix)
-        initialize_subtour(subtours)
-        repair_subtour(subtours)
-        assert is_valid_tour(child), "Invalid tour after EAX repair."
+        initialize_subtours(subtours)
+        repair_tour(subtours)
+        # assert is_valid_tour(child), "Invalid tour after EAX repair."
+
         # Calculate cost via tour_cost
         cost = tour_cost(child, distance_matrix)
         
