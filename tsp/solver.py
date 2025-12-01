@@ -1,7 +1,6 @@
 import numpy as np
 from numba import njit, prange
-from numba.experimental import jitclass
-from numba import types
+from typing import NamedTuple
 from tsp.representation import tour_cost, is_valid_tour, to_city_order, hamming_distance
 from tsp.greedy import greedy_cycle
 from tsp.crossover import EAX
@@ -10,42 +9,16 @@ from tsp.search import precompute_candidates, lso, LSO_2OPT, LSO_3OPT, LSO_OROPT
 from tsp.reporter import Reporter
 
 
-config_spec = [
-    ('distance_matrix', types.float64[:, :]),
-    ('candidates', types.int32[:, :]),
-    ('population_size', types.int64),
-    ('offspring_size', types.int64),
-    ('window_size', types.int64),
-    ('mutation_rates', types.float64[:]),
-    ('tournament_size', types.int64),
-    ('init_temp', types.float64),
-    ('search_iters', types.int64[:]),
-]
-
-@jitclass(config_spec)
-class Config:
-    """Configuration for the EA, compatible with numba jit functions."""
-    def __init__(
-        self,
-        distance_matrix: np.ndarray,
-        candidates: np.ndarray,
-        population_size: int,
-        offspring_size: int,
-        window_size: int,
-        mutation_rates: tuple,
-        tournament_size: int,
-        init_temp: float,
-        search_iters: tuple,
-    ):
-        self.distance_matrix = distance_matrix
-        self.candidates = candidates
-        self.population_size = population_size
-        self.offspring_size = offspring_size
-        self.init_temp = init_temp
-        self.tournament_size = tournament_size
-        self.window_size = window_size
-        self.mutation_rates = mutation_rates
-        self.search_iters = search_iters
+class Config(NamedTuple):
+    distance_matrix: np.ndarray
+    candidates: np.ndarray
+    population_size: int
+    offspring_size: int
+    init_temp: float
+    tournament_size: int
+    window_size: int
+    mutation_rates: np.ndarray
+    search_iters: np.ndarray
 
 
 class MemeticATSP:
@@ -58,7 +31,7 @@ class MemeticATSP:
         tournament_size: int = 4,
         window_size: int = 5,
         mutation_rates: tuple = (0.15, 0.15), # (double_bridge, reverse)
-        search_iterations: tuple = (5, 5, 5),  # (3opt, oropt, 2opt)
+        search_iterations: tuple = (5, 5, 5), # (3opt, oropt, 2opt)
     ):
         self.population = None
         self.fitness = None
@@ -70,8 +43,8 @@ class MemeticATSP:
             population_size=population_size,
             offspring_size=offspring_size,
             init_temp=init_temp,
-            window_size=window_size,
             tournament_size=tournament_size,
+            window_size=window_size,
             mutation_rates=np.array(mutation_rates, dtype=np.float64),
             search_iters=np.array(search_iterations, dtype=np.int64),
         )

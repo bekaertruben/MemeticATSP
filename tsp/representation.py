@@ -146,6 +146,12 @@ class Subtours:
     def initialize(self):
         _initialize(self.tour, self.subtours, self.subtour_ids)
     
+    def merge_subtours(self, s1, s2):
+        _merge_subtours(self.tour, self.distance_matrix, self.subtours, self.subtour_ids, s1, s2)
+    
+    def close_chain(self, chain_idx):
+        _close_chain(self.tour, self.subtours, chain_idx)
+    
     def repair(self):
         _repair(self.tour, self.distance_matrix, self.subtours, self.subtour_ids)
 
