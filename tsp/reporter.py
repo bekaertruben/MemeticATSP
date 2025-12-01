@@ -47,7 +47,7 @@ class Reporter:
             self.csv_file.write(f"# num_cities,{config.distance_matrix.shape[0]}\n")
             self.csv_file.write(f"# population_size,{config.population_size}\n")
             self.csv_file.write(f"# offspring_size,{config.offspring_size}\n")
-            self.csv_file.write(f"# window_size,{config.window_size}\n")
+            self.csv_file.write(f"# window_size,{None}\n")
             self.csv_file.write(f"# mutation_rates,{tuple(config.mutation_rates)}\n")
             self.csv_file.write(f"# tournament_size,{config.tournament_size}\n")
             self.csv_file.write(f"# init_temp,{config.init_temp}\n")
@@ -58,7 +58,11 @@ class Reporter:
             "time_elapsed",
             "best_fitness",
             "mean_fitness",
-            "avg_hamming_distance"
+            "avg_hamming_distance",
+            "time_offspring",
+            "time_mutation",
+            "time_search",
+            "time_elimination"
         ])
         
         self.console.print(f"[bold green]Logging to:[/bold green] {self.csv_path.absolute()}")
@@ -108,7 +112,11 @@ class Reporter:
             f"{elapsed:.2f}",
             f"{best_fitness:.2f}",
             f"{mean_fitness:.2f}",
-            f"{avg_hamming:.2f}"
+            f"{avg_hamming:.2f}",
+            f"{ea.timings.get('offspring', 0.0):.6f}",
+            f"{ea.timings.get('mutation', 0.0):.6f}",
+            f"{ea.timings.get('search', 0.0):.6f}",
+            f"{ea.timings.get('elimination', 0.0):.6f}"
         ])
         self.csv_file.flush()
         
@@ -118,7 +126,7 @@ class Reporter:
             f"[yellow]Time: {elapsed:>7.2f}s[/yellow] | "
             f"[green]Best: {best_fitness:>10.2f}[/green] | "
             f"[blue]Mean: {mean_fitness:>10.2f}[/blue] | "
-            f"[magenta]Diversity: {avg_hamming:>6.2f}[/magenta]"
+            f"[magenta]Diversity: {avg_hamming:>6.2f}[/magenta] | "
         )
 
     def __enter__(self):

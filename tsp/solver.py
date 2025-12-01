@@ -1,4 +1,5 @@
 import numpy as np
+import time
 from numba import njit, prange
 from typing import NamedTuple
 from tsp.representation import tour_cost, is_valid_tour, to_city_order, hamming_distance
@@ -25,18 +26,24 @@ class MemeticATSP:
     def __init__(
         self,
         distance_matrix: np.ndarray,
-        population_size: int = 300,
-        offspring_size: int = 300,
+        population_size: int = 100,
+        offspring_size: int = 100,
         init_temp: float = 0.02,
-        tournament_size: int = 5,
-        window_size: int = 30,
-        mutation_rates: tuple = (0.25, 0), # (double_bridge, reverse)
+        tournament_size: int = 4,
+        window_size: int = 20,
+        mutation_rates: tuple = (0.2, 0.1), # (double_bridge, reverse)
         search_iterations: tuple = (1, 1, 1), # (3opt, oropt, 2opt)
     ):
         self.population = None
         self.fitness = None
         self.config = None
         self.generation = 0
+        self.timings = {
+            'offspring': 0.0,
+            'mutation': 0.0,
+            'search': 0.0,
+            'elimination': 0.0
+        }
         self.config = Config(
             distance_matrix=distance_matrix,
             candidates=precompute_candidates(distance_matrix, num_candidates=20),
@@ -63,17 +70,31 @@ class MemeticATSP:
 
     def step(self):
         """Run one generation of the EA."""
+        # Offspring generation
+        t_start = time.perf_counter()
         offspring, offspring_fitness = generate_offspring(
             self.population, self.fitness, self.config
         )
+        self.timings['offspring'] = time.perf_counter() - t_start
+        
+        # Mutation
+        t_start = time.perf_counter()
         mutation(offspring, offspring_fitness, self.config)
+        self.timings['mutation'] = time.perf_counter() - t_start
+        
+        # Local search (offspring + population)
+        t_start = time.perf_counter()
         search(offspring, offspring_fitness, self.config)
-
         search(self.population, self.fitness, self.config)
-
+        self.timings['search'] = time.perf_counter() - t_start
+        
+        # Elimination
+        t_start = time.perf_counter()
         self.population, self.fitness = elimination(
             self.population, self.fitness, offspring, offspring_fitness, self.config
         )
+        self.timings['elimination'] = time.perf_counter() - t_start
+        
         self.generation += 1
     
     def run(self, num_generations: int, reporter: Reporter = None):
