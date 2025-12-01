@@ -61,7 +61,7 @@ def precompute_candidates(distance_matrix, num_candidates=10, num_nn=5):
     
     n = distance_matrix.shape[0]
     total_candidates = num_candidates + num_nn
-    candidates = np.zeros((n, total_candidates), dtype=np.int32)
+    candidates = np.zeros((n, total_candidates), dtype=np.int64)
     
     for i in range(n):
         # Sort descending

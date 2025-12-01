@@ -1,7 +1,8 @@
 import numpy as np
 from numba import njit
 from numba.typed import List
-from tsp.representation import Subtours, is_valid_tour, tour_cost, invert_permutation
+from tsp.representation import is_valid_tour, tour_cost, invert_permutation
+from tsp.subtours import make_subtour, initialize_subtour, repair_subtour
 
 """
 CROSSOVER OPERATORS:
@@ -106,22 +107,20 @@ def EAX(parent1, parent2, distance_matrix, num_trials=1, num_cycles_to_select=2)
         # Step 3: Apply E-set cycles
         for idx in selected_indices:
             cycle = cycles[idx]
-            for i, u in enumerate(cycle):
-                child[0, u] = parent2[0, u]
+            child[0, cycle] = parent2[0, cycle]
         child[1] = invert_permutation(child[0])
         
         # Step 4: Repair fragmented tour
-        subtours = Subtours(child, distance_matrix)
-        subtours.initialize()
-        subtours.repair()
-        assert is_valid_tour(subtours.tour), "Invalid tour after EAX repair."
-
+        subtours = make_subtour(child, distance_matrix)
+        initialize_subtour(subtours)
+        repair_subtour(subtours)
+        assert is_valid_tour(child), "Invalid tour after EAX repair."
         # Calculate cost via tour_cost
         cost = tour_cost(child, distance_matrix)
         
         if cost < best_cost:
             best_cost = cost
-            best_child = child.copy()
+            best_child = child
     
     if best_child is None:
         child = parent1.copy()
