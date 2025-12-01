@@ -1,7 +1,7 @@
 import numpy as np
 from numba import njit
 from numba.typed import List
-from tsp.representation import is_valid_tour, tour_cost, repair_tour
+from tsp.representation import is_valid_tour, tour_cost, Subtours
 
 """
 CROSSOVER OPERATORS:
@@ -117,7 +117,7 @@ def eax_apply_eset(tour, cycle_nodes, parent2):
     tour[1] = pred
 
 
-# @njit(cache=True)
+@njit(cache=True)
 def EAX(parent1, parent2, distance_matrix, num_trials=1, num_cycles_to_select=2):
     """
     Edge Assembly Crossover (EAX) operator for ATSP tours.
@@ -165,20 +165,16 @@ def EAX(parent1, parent2, distance_matrix, num_trials=1, num_cycles_to_select=2)
         selected_indices = indices[:k]
         
         # Start with copy of parent1
-        tour = parent1.copy()
+        child = parent1.copy()
         
         # Step 3: Apply E-set (remove A-edges, add B-edges for selected cycles)
         for idx in selected_indices:
             cycle = cycles[idx]
-            eax_apply_eset(tour, cycle, parent2)
+            eax_apply_eset(child, cycle, parent2)
         
         # Step 4: Repair if fragmented
-        if not is_valid_tour(tour):
-            repair_tour(tour, distance_matrix)
-        assert is_valid_tour(tour), "Repaired tour is still invalid!"
-        
-        # Build child tour
-        child = tour
+        # if not is_valid_tour(child):
+        Subtours(child, distance_matrix).repair()
 
         # Calculate cost via tour_cost
         cost = tour_cost(child, distance_matrix)

@@ -99,8 +99,10 @@ def hamming_distance(tour1, tour2):
 # Subtour representation: (length, is_chain, start_node, end_node)
 SubtourType = types.UniTuple(types.int64, 4)
 
+
 @jitclass([
     ('tour', types.int64[:, :]),
+    ('distance_matrix', types.float64[:, :]),
     ('subtours', types.ListType(SubtourType)),
     ('subtour_ids', types.int64[:])
 ])
@@ -113,12 +115,14 @@ class Subtours:
 
     Attributes:
         tour: The tour in adjacency representation (2, N)
+        distance_matrix: The distance matrix used for cost calculations
         subtours: List of subtours, each as
                     (length, is_chain, start_node, end_node)
         subtour_ids: Array mapping each node to its subtour index
     """
-    def __init__(self, tour):
+    def __init__(self, tour, distance_matrix):
         self.tour = tour
+        self.distance_matrix = distance_matrix
         self.initialize()
     
     def initialize(self):
@@ -173,12 +177,10 @@ class Subtours:
             self.subtours.append((length, is_chain, start, end))
             subtour_idx += 1
     
-    def merge_subtours(self, s1, s2, distance_matrix):
+    def merge_subtours(self, s1, s2):
         """
         Merge two directed subtours (cycles) using directed 2-exchange.
-        
-        s1 and s2 are indices into self.subtours list.
-        Both must be cycles (not chains).
+        s1 and s2 are indices for cycles in self.subtours.
         
         Finds the best way to break one edge from each subtour and reconnect
         them to form a single subtour, respecting edge directions.
@@ -194,88 +196,59 @@ class Subtours:
         Modifies the tour in-place, removes both subtours from the list,
         and adds a new merged subtour.
         """
-        assert s1 != s2, "Cannot merge a subtour with itself."
-        assert self.subtours[s1][1] == 0, "Subtour 1 must be a cycle."
-        assert self.subtours[s2][1] == 0, "Subtour 2 must be a cycle."
+        length1, is_chain1, start1, end1 = self.subtours[s1]
+        length2, is_chain2, start2, end2 = self.subtours[s2]
         
-        succ = self.tour[0]
-        pred = self.tour[1]
+        assert not is_chain1 and not is_chain2, "Both subtours must be cycles to merge."
         
-        st1 = self.subtours[s1]
-        st2 = self.subtours[s2]
-        s1_start = st1[2]
-        s2_start = st2[2]
-        
-        # Collect nodes in each subtour
-        nodes1 = List.empty_list(types.int64)
-        current = s1_start
-        while True:
-            nodes1.append(current)
-            current = succ[current]
-            if current == s1_start:
-                break
-        
-        nodes2 = List.empty_list(types.int64)
-        current = s2_start
-        while True:
-            nodes2.append(current)
-            current = succ[current]
-            if current == s2_start:
-                break
-        
-        # Find best directed merge
         best_delta = np.inf
-        best_u, best_v = -1, -1
-        for u in nodes1:
-            u_prime = succ[u]
-            for v in nodes2:
-                v_prime = succ[v]
+        best_edges = None
+
+        # Iterate over all edges in both subtours
+        current1 = start1
+        for _ in range(length1):
+            next1 = self.tour[0, current1]
+            current2 = start2
+            for _ in range(length2):
+                next2 = self.tour[0, current2]
                 
-                current_cost = distance_matrix[u, u_prime] + distance_matrix[v, v_prime]
-                new_cost = distance_matrix[u, v_prime] + distance_matrix[v, u_prime]
-                delta = new_cost - current_cost
+                # Calculate cost difference
+                delta = (self.distance_matrix[current1, next2] +
+                         self.distance_matrix[current2, next1] -
+                         self.distance_matrix[current1, next1] -
+                         self.distance_matrix[current2, next2])
                 
                 if delta < best_delta:
                     best_delta = delta
-                    best_u = u
-                    best_v = v
+                    best_edges = (current1, next1, current2, next2)
+                
+                current2 = next2
+            current1 = next1
+        
+        u, u_prime, v, v_prime = best_edges
+        # Perform the 2-exchange
+        self.tour[0, u] = v_prime
+        self.tour[1, v_prime] = u
+        self.tour[0, v] = u_prime
+        self.tour[1, u_prime] = v
 
-        # For edges u->u' in S1 and v->v' in S2
-        # Replace with u->v' and v->u'
-        u_prime = succ[best_u]
-        v_prime = succ[best_v]
+        # Update subtours id array
+        min_s, max_s = min(s1, s2), max(s1, s2)
+        mask_new_subtour = (self.subtour_ids == s1) | (self.subtour_ids == s2)
+        self.subtour_ids[mask_new_subtour] = min_s
+        # subtracts 1 from all subtour ids greater than max(s1, s2)
+        for i in range(len(self.subtours)):
+            if i > max_s:
+                mask = (self.subtour_ids == i)
+                self.subtour_ids[mask] = i - 1
         
-        # Apply the merge: u->v' and v->u'
-        succ[best_u] = v_prime
-        pred[v_prime] = best_u
-        succ[best_v] = u_prime
-        pred[u_prime] = best_v
-        
-        # Update subtour_ids for nodes in both subtours to point to new index
-        new_idx = len(self.subtours) - 2  # Will be at end after removing two
-        for node in nodes1:
-            self.subtour_ids[node] = new_idx
-        for node in nodes2:
-            self.subtour_ids[node] = new_idx
-        
-        # Create merged subtour entry
-        new_length = st1[0] + st2[0]
-        new_start = s1_start  # Can use either start since it's a cycle
-        new_end = new_start   # For a cycle, end == start
-        merged = (new_length, 0, new_start, new_end)  # is_chain = 0 (False)
-        
-        # Remove both subtours and add merged one
-        # Remove higher index first to avoid shifting issues
-        if s1 > s2:
-            self.subtours.pop(s1)
-            self.subtours.pop(s2)
-        else:
-            self.subtours.pop(s2)
-            self.subtours.pop(s1)
-        
-        self.subtours.append(merged)
-    
-    def close_chain(self, chain_idx, distance_matrix):
+        # Add the new subtour info to the first subtour's position
+        # and remove the second subtour
+        self.subtours[min_s] = (length1 + length2, 0, start1, start1)
+        self.subtours.pop(max_s)
+
+
+    def close_chain(self, chain_idx):
         """
         Close a chain subtour into a cycle by connecting its end to its start.
         """
@@ -289,22 +262,33 @@ class Subtours:
         # Update subtour to be a cycle
         self.subtours[chain_idx] = (length, 0, start_node, start_node)
 
+    def repair(self):
+        """
+        Repair the tour by closing chains and merging subtours until only one remains.
+        """
+        # Close all chains first
+        for i, st in enumerate(self.subtours):
+            if st[1] == 1:
+                self.close_chain(i)
+        
+        # Merge subtours until only one remains 
+        for i,j in _combine_indices(len(self.subtours)):
+            self.merge_subtours(i, j)
+        
+        # while len(self.subtours) > 1:
+        #     self.merge_subtours(0, 1)
 
-# @njit(cache=True) 
-def repair_tour(tour, distance_matrix):
+
+@njit(cache=True)
+def _combine_indices(n):
     """
-    Repair a possibly fragmented tour into a single Hamiltonian cycle.
-    
-    First ensures all nodes have valid successors (connecting chains),
-    then iteratively merges subtours until only one remains.
+    Yield pairs (i, j) representing positions in a shrinking list.
+    Combining (i, j) replaces element at i and removes element at j.
     """
-    subtours = Subtours(tour)
-
-    # Close chains
-    # for i, st in enumerate(subtours.subtours):
-    #     if st[1] == 1:
-    #         subtours.close_chain(i, distance_matrix)
-
-    # Merge subtours until only one remains
-    while len(subtours.subtours) > 1:
-        subtours.merge_subtours(0, 1, distance_matrix)
+    size = n
+    while size > 1:
+        i = 0
+        while i < size - 1:
+            yield (i, i + 1)
+            size -= 1        # because we removed index (i+1)
+            i += 1           # continue to next pair

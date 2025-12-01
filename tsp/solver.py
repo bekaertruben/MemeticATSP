@@ -58,7 +58,7 @@ class MemeticATSP:
         tournament_size: int = 4,
         window_size: int = 5,
         mutation_rates: tuple = (0.15, 0.15), # (double_bridge, reverse)
-        search_iterations: tuple = (5, 0, 5),  # (3opt, oropt, 2opt)
+        search_iterations: tuple = (5, 5, 5),  # (3opt, oropt, 2opt)
     ):
         self.population = None
         self.fitness = None
@@ -205,7 +205,7 @@ def search(population, fitness, config):
         # fitness[i] = tour_cost(population[i], config.distance_matrix)
         # assert is_valid_tour(population[i]), "Invalid tour after local search."
 
-# @njit(cache=True)
+@njit(cache=True)
 def generate_offspring(population, pop_fitness, config):
     """
     Generate offspring using crossover from the population.
@@ -220,7 +220,6 @@ def generate_offspring(population, pop_fitness, config):
         parent1 = tournament_selection(population, pop_fitness, config)
         parent2 = tournament_selection(population, pop_fitness, config)
         child, cost = EAX(parent1, parent2, config.distance_matrix)
-        # child, cost = GPX(parent1, parent2, config.distance_matrix)
         # assert is_valid_tour(child), "Generated invalid tour in crossover."
         offspring[i] = child
         offspring_fitness[i] = cost

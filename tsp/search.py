@@ -37,8 +37,10 @@ def lso(tour, distance_matrix, candidates, method=LSO_2OPT, max_iter=100, max_se
             gain = find_2opt_move(tour, distance_matrix, candidates)
         elif method == LSO_3OPT:
             gain = find_3opt_move(tour, distance_matrix, candidates)
-        else:  # LSO_OROPT
+        elif method == LSO_OROPT:
             gain = find_oropt_move(tour, distance_matrix, candidates, max_segment_size)
+        else:
+            raise ValueError("Invalid local search method.")
         
         if gain < 0:
             total_gain += gain
