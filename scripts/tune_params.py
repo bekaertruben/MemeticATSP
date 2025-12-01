@@ -6,39 +6,35 @@ import os
 import numpy as np
 import ray
 from ray import tune
-from ray.tune.schedulers import ASHAScheduler
-from ray.tune.search.optuna import OptunaSearch
+from ray.tune.stopper import TrialPlateauStopper
 from tsp.solver import MemeticATSP
 
 # Get the absolute path to the data file
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_PATH = os.path.join(SCRIPT_DIR, "tours", "tour500.csv")
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_PATH = os.path.join(ROOT_DIR, "tours", "tour500.csv")
 
 
 def train_memetic(config):
     """Training function for Ray Tune."""
     # Load distance matrix
     D = np.loadtxt(DATA_PATH, delimiter=",")
-    
+
     # Create solver with hyperparameters from config
     ea = MemeticATSP(
         distance_matrix=D,
-        population_size=config["population_size"],
-        offspring_size=config.get("offspring_size"),
-        sharing_radius=config["sharing_radius"],
-        sharing_alpha=config["sharing_alpha"],
-        # Convert scalar total mutation probability to per-operator absolute
-        # probabilities (even split across both operators).
-        mutation_probs=(config["mutation_prob_total"]/2.0, config["mutation_prob_total"]/2.0),
-        tournament_size=config["tournament_size"],
-        init_temp=config["init_temp"],
+        population_size=100, # config["lambda"]
+        offspring_size=100, # config["mu"]
+        init_temp=config["T"],
+        tournament_size=config["k"],
+        window_size=config["window"],
+        mutation_rates=(config["db"], config["rev"]),
         search_iterations=(
-            config["search_iters_3opt"],
-            config["search_iters_oropt"],
-            config["search_iters_2opt"],
+            config["3opt"],
+            config["oropt"],
+            config["2opt"],
         ),
     )
-    
+
     ea.initialize()
     i = 0
     while True:
@@ -55,56 +51,46 @@ def train_memetic(config):
 def main():
     # Define the search space
     search_space = {
-        "population_size": tune.randint(50, 301),
-        "offspring_size": tune.randint(50, 301),
-        "sharing_radius": tune.uniform(0.05, 0.5),
-        "sharing_alpha": tune.uniform(0.5, 2.0),
-        # Total mutation probability to be split across available operators.
-        "mutation_prob_total": tune.uniform(0.05, 0.5),
-        "tournament_size": tune.randint(2, 11),
-        "init_temp": tune.loguniform(0.01, 1.0),
-        "search_iters_3opt": tune.randint(0, 6),
-        "search_iters_oropt": tune.randint(0, 11),
-        "search_iters_2opt": tune.randint(0, 21),
+        # "lambda": tune.randint(50, 301),
+        # "mu": tune.randint(50, 301),
+        "T": tune.loguniform(0.01, 1.0),
+        "db": tune.uniform(0.05, 0.5),
+        "rev": tune.uniform(0.05, 0.5),
+        "k": tune.randint(2, 11),
+        "window": tune.randint(5, 100),
+        "3opt": tune.randint(0, 11),
+        "oropt": tune.randint(0, 11),
+        "2opt": tune.randint(0, 11),
     }
-    
-    # Use Optuna as the search algorithm
-    optuna_search = OptunaSearch(
+
+    # Define the Stopper
+    stopper = TrialPlateauStopper(
         metric="best_fitness",
-        mode="min",
+        std=0.0001,
+        num_results=15,
+        grace_period=20,
+        # mode="min"
     )
-    
-    # ASHA scheduler for early stopping of bad trials
-    scheduler = ASHAScheduler(
-        metric="best_fitness",
-        mode="min",
-        max_t=1000,  # Max iterations
-        grace_period=10,  # Min iterations before pruning
-        reduction_factor=2,
-    )
-    
-    # Run the tuning
+
     tuner = tune.Tuner(
         train_memetic,
         param_space=search_space,
-        tune_config=tune.TuneConfig(
-            search_alg=optuna_search,
-            scheduler=scheduler,
-            num_samples=500,  # Number of trials to run
-            max_concurrent_trials=10,  # Limit simultaneous trials
-            time_budget_s=5 * 60,  # Quit each trial after 5 minutes
-        ),
         run_config=tune.RunConfig(
             name="memetic_tsp_tuning",
+            stop=stopper,
             verbose=1,
         ),
+        tune_config=tune.TuneConfig(
+            metric="best_fitness",
+            mode="min",
+            num_samples=50,
+            max_concurrent_trials=1,
+        ),
     )
-    
+
     results = tuner.fit()
-    
-    # Get the best result
     best_result = results.get_best_result(metric="best_fitness", mode="min")
-    
+
     print("\n" + "=" * 60)
     print("BEST HYPERPARAMETERS FOUND:")
     print("=" * 60)

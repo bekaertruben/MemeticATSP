@@ -28,10 +28,10 @@ class MemeticATSP:
         distance_matrix: np.ndarray,
         population_size: int = 100,
         offspring_size: int = 100,
-        init_temp: float = 0.02,
+        init_temp: float = 0.05,
         tournament_size: int = 4,
-        window_size: int = 20,
-        mutation_rates: tuple = (0.2, 0.1), # (double_bridge, reverse)
+        window_size: int = 100,
+        mutation_rates: tuple = (0.2, 0.2), # (double_bridge, reverse)
         search_iterations: tuple = (1, 1, 1), # (3opt, oropt, 2opt)
     ):
         self.population = None
