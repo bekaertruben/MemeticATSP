@@ -179,3 +179,116 @@ def double_bridge(tour, D):
     tour[1, targets] = abcd
 
     return delta
+
+
+@njit
+def random_k_segment_perturbation(tour, k):
+    """
+    Perform a random k-segment perturbation (non-reversing k-opt).
+    Breaks the tour into k segments and permutes them.
+    
+    Args:
+        tour: The tour in (2, N) representation.
+        k: Number of segments (cuts).
+    """
+    N = tour.shape[1]
+    if N < k * 2:
+        return # Too small to cut into k segments
+
+    # 1. Select k random cut points (edges to break)
+    # We need k distinct edges.
+    # An edge is defined by its start node. (start -> next)
+    cuts = np.zeros(k, dtype=np.int64)
+    
+    # Simple random selection without replacement
+    # For small k relative to N, rejection sampling is fine.
+    count = 0
+    while count < k:
+        candidate = np.random.randint(N)
+        # Check if already selected or adjacent to selected (to avoid empty segments)
+        # Actually, empty segments are just single nodes, which is fine?
+        # But for "segment" permutation, usually we want at least 1 node.
+        # Let's just ensure distinct edges.
+        is_new = True
+        for i in range(count):
+            if cuts[i] == candidate:
+                is_new = False
+                break
+        if is_new:
+            cuts[count] = candidate
+            count += 1
+            
+    # Sort cuts to define segments in order of appearance in the tour
+    # We cannot just sort by index. We must traverse the tour.
+    # To do this efficiently:
+    # 1. Mark cuts in a boolean array
+    # 2. Traverse tour and collect cuts in order
+    
+    is_cut = np.zeros(N, dtype=np.bool_)
+    for i in range(k):
+        is_cut[cuts[i]] = True
+        
+    sorted_cuts = np.zeros(k, dtype=np.int64)
+    current = 0 # Start traversal from 0 (arbitrary start of cycle)
+    found = 0
+    
+    # We need to find the first cut to align the cycle?
+    # Actually, any cyclic order is fine.
+    # But we need to traverse the whole tour to find all k cuts in order.
+    
+    # Optimization: if we just traverse from 0, we find them in order 0->...
+    
+    idx = 0
+    curr = 0
+    visited_count = 0
+    while visited_count < N and idx < k:
+        if is_cut[curr]:
+            sorted_cuts[idx] = curr
+            idx += 1
+        curr = tour[0, curr]
+        visited_count += 1
+        
+    cuts = sorted_cuts
+    
+    # Segments are defined between cuts.
+    # If cuts are c1, c2, ..., ck (in tour order)
+    # Segment 1: next[c1] ... c2
+    # ...
+    
+    starts = np.zeros(k, dtype=np.int64)
+    ends = np.zeros(k, dtype=np.int64)
+    
+    for i in range(k):
+        starts[i] = tour[0, cuts[i]]
+        ends[i] = cuts[(i + 1) % k]
+        
+    # 2. Permute the segments
+    # We need a random permutation of 0..k-1
+    # But we must ensure it's not the identity (0, 1, ..., k-1)
+    # and preferably not a simple rotation (which is just the same tour shifted).
+    # Since we are reconnecting, any reordering that changes adjacency is a valid move.
+    
+    perm = np.random.permutation(k)
+    
+    # Check if identity (unlikely for k >= 4)
+    is_identity = True
+    for i in range(k):
+        if perm[i] != i:
+            is_identity = False
+            break
+            
+    if is_identity:
+        # Swap first two
+        perm[0], perm[1] = perm[1], perm[0]
+        
+    # 3. Reconnect segments
+    # New order: Segment perm[0] -> Segment perm[1] -> ... -> Segment perm[k-1] -> Segment perm[0]
+    # Connection: End of Segment perm[i] -> Start of Segment perm[i+1]
+    
+    for i in range(k):
+        u = ends[perm[i]]
+        v = starts[perm[(i + 1) % k]]
+        
+        # Create edge u -> v
+        tour[0, u] = v
+        tour[1, v] = u

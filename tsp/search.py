@@ -360,3 +360,199 @@ def find_oropt_move(tour, distance_matrix, candidates, max_segment_size=3):
                 seg_nodes[seg_size] = seg_end
     
     return 0.0
+
+
+
+
+"""
+Antigravity's implementation of Variable Neighborhood Search for the ATSP:
+"""
+from tsp.mutation import random_k_segment_perturbation
+from tsp.representation import tour_cost
+
+
+@njit
+def make_3opt_move(tour, t1, t2, t3, t4, t5, t6):
+    """
+    Executes a specific non-reversing 3-opt move.
+    
+    Original edges: (t1, t2), (t3, t4), (t5, t6)
+    New edges:      (t1, t4), (t5, t2), (t3, t6)
+    
+    This effectively swaps segments S1 (t2..t3) and S2 (t4..t5).
+    """
+    # Update forward pointers
+    tour[0, t1] = t4
+    tour[0, t5] = t2
+    tour[0, t3] = t6
+    
+    # Update backward pointers
+    tour[1, t4] = t1
+    tour[1, t2] = t5
+    tour[1, t6] = t3
+
+@njit
+def local_search(tour, distance_matrix, candidates, dont_look):
+    """
+    Performs 3-opt local search on the tour until no improvements are found.
+    """
+    N = distance_matrix.shape[0]
+    improved = True
+    
+    while improved:
+        improved = False
+        
+        for t1 in range(N):
+            if dont_look[t1]:
+                continue
+                
+            # t1 is the start of the search.
+            # We look for a move starting by breaking (t1, t2)
+            t2 = tour[0, t1]
+            
+            move_found = False
+            
+            # Iterate through candidates for t1 to find t4
+            for i in range(candidates.shape[1]):
+                t4 = candidates[t1, i]
+                if t4 == t2 or t4 == t1:
+                    continue
+                
+                # Gain from first exchange
+                g1 = distance_matrix[t1, t2] - distance_matrix[t1, t4]
+                if g1 <= 0:
+                    continue # Pruning based on first gain
+                
+                # Now we need to find t5 and t3.
+                # t4 is the start of S2. t5 is the end of S2.
+                # t2 is the start of S1. t3 is the end of S1.
+                # The move swaps S1 and S2.
+                
+                # So t3 is the node BEFORE t4 in the current tour.
+                t3 = tour[1, t4]
+                
+                # So we have t1, t2, t4, t3.
+                # t1 -> t2 (remove)
+                # t3 -> t4 (remove)
+                # Add (t1, t4).
+                
+                # Now we need to find t5, t6.
+                # t5 is some node after t4? No, t5 is end of S2.
+                # t6 is next[t5].
+                # We remove (t5, t6).
+                # We add (t5, t2) and (t3, t6).
+                
+                # So we need to find an edge (t5, t6) such that:
+                # Gain = Cost(t1,t2) + Cost(t3,t4) + Cost(t5,t6) 
+                #      - Cost(t1,t4) - Cost(t5,t2) - Cost(t3,t6) > 0
+                
+                # Let's iterate t5 from t4 forward.
+                curr_t5 = t4
+                
+                limit = N
+                count = 0
+                
+                while count < limit:
+                    t5 = curr_t5
+                    t6 = tour[0, t5]
+                    
+                    if t5 == t3:
+                        break 
+                    
+                    if t5 == t1:
+                        break 
+                        
+                    # Calculate gain
+                    # Removed: (t1,t2), (t3,t4), (t5,t6)
+                    # Added: (t1,t4), (t5,t2), (t3,t6)
+                    
+                    current_gain = (distance_matrix[t1, t2] + 
+                                    distance_matrix[t3, t4] + 
+                                    distance_matrix[t5, t6]) - \
+                                   (distance_matrix[t1, t4] + 
+                                    distance_matrix[t5, t2] + 
+                                    distance_matrix[t3, t6])
+                                   
+                    if current_gain > 1e-6: # Use epsilon for float comparison
+                        # Found a move!
+                        make_3opt_move(tour, t1, t2, t3, t4, t5, t6)
+                        improved = True
+                        dont_look[t1] = False
+                        dont_look[t2] = False
+                        dont_look[t3] = False
+                        dont_look[t4] = False
+                        dont_look[t5] = False
+                        dont_look[t6] = False
+                        move_found = True
+                        break
+                    
+                    curr_t5 = t6
+                    count += 1
+                    
+                    # Safety break
+                    if curr_t5 == t1:
+                        break
+                
+                if move_found:
+                    break
+            
+            if not move_found:
+                dont_look[t1] = True
+                
+    return tour
+
+@njit
+def vns_solver(distance_matrix, initial_tour=None, max_iterations=100):
+    N = distance_matrix.shape[0]
+    
+    # Initialize tour if not provided
+    if initial_tour is None:
+        tour = np.zeros((2, N), dtype=np.int64)
+        for i in range(N):
+            tour[0, i] = (i + 1) % N
+            tour[1, (i + 1) % N] = i
+    else:
+        tour = initial_tour.copy()
+        
+    # Precompute candidates
+    candidates = precompute_candidates(distance_matrix, k=10)
+    
+    # Initial Local Search
+    dont_look = np.zeros(N, dtype=np.bool_)
+    tour = local_search(tour, distance_matrix, candidates, dont_look)
+    
+    best_tour = tour.copy()
+    best_cost = tour_cost(best_tour, distance_matrix)
+    
+    # VNS Loop
+    # We use iterations as the stopping criterion for simplicity
+    # In VNS, "iterations" usually refers to the outer loop.
+    
+    iteration = 0
+    k_min = 4
+    k_max = 10
+    
+    while iteration < max_iterations:
+        k = k_min
+        while k <= k_max:
+            # Shaking
+            new_tour = best_tour.copy()
+            random_k_segment_perturbation(new_tour, k)
+            
+            # Local Search
+            dont_look_new = np.zeros(N, dtype=np.bool_)
+            new_tour = local_search(new_tour, distance_matrix, candidates, dont_look_new)
+            
+            new_cost = tour_cost(new_tour, distance_matrix)
+            
+            # Move / Acceptance
+            if new_cost < best_cost:
+                best_cost = new_cost
+                best_tour = new_tour.copy()
+                k = k_min # Restart neighborhood
+            else:
+                k += 1 # Next neighborhood
+                
+        iteration += 1
+            
+    return best_tour
