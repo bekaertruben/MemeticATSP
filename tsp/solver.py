@@ -4,6 +4,7 @@ from numba import njit, prange
 from typing import NamedTuple
 from tsp.representation import tour_cost, is_valid_tour, to_city_order, hamming_distance
 from tsp.greedy import greedy_cycle
+from tsp.genetic import tournament_selection, rank_selection, fitness_sharing, restricted_tournament_replacement
 from tsp.crossover import MPX, EAX
 from tsp.mutation import double_bridge, reverse
 from tsp.search import precompute_candidates, lso, LSO_2OPT, LSO_3OPT, LSO_OROPT
@@ -31,7 +32,7 @@ class MemeticATSP:
         init_temp: float = 0.05,
         tournament_size: int = 4,
         window_size: int = 100,
-        mutation_rates: tuple = (0.2, 0.2), # (double_bridge, reverse)
+        mutation_rates: tuple = (0.25, 0.25), # (double_bridge, reverse)
         search_iterations: tuple = (1, 1, 1), # (3opt, oropt, 2opt)
     ):
         self.population = None
@@ -90,8 +91,8 @@ class MemeticATSP:
         
         # Elimination
         t_start = time.perf_counter()
-        self.population, self.fitness = elimination(
-            self.population, self.fitness, offspring, offspring_fitness, self.config
+        self.population, self.fitness = restricted_tournament_replacement(
+            self.population, self.fitness, offspring, offspring_fitness, self.config.window_size
         )
         self.timings['elimination'] = time.perf_counter() - t_start
         
@@ -152,23 +153,6 @@ def initialization(config):
 
     return population
 
-@njit(cache=True)
-def tournament_selection(population, fitness, config):
-    """
-    Select an individual from the population using tournament selection.
-    """
-    pop_size = population.shape[0]
-    best_idx = -1
-    best_fitness = np.inf
-
-    for _ in range(config.tournament_size):
-        idx = np.random.randint(0, pop_size)
-        if fitness[idx] < best_fitness:
-            best_fitness = fitness[idx]
-            best_idx = idx
-
-    return population[best_idx]
-
 @njit(cache=True, parallel=True)
 def mutation(population, fitness, config):
     """
@@ -199,60 +183,26 @@ def search(population, fitness, config):
         # fitness[i] = tour_cost(population[i], config.distance_matrix)
         # assert is_valid_tour(population[i]), "Invalid tour after local search."
 
-@njit(cache=True)
+# @njit(cache=True)
 def generate_offspring(population, pop_fitness, config):
     """
     Generate offspring using crossover from the population.
-
     Returns both offspring and their fitness values.
     """
     N = population.shape[2]
     offspring = np.empty((config.offspring_size, 2, N), dtype=np.int_)
     offspring_fitness = np.empty(config.offspring_size, dtype=np.float64)
 
-    for i in prange(config.offspring_size):
-        parent1 = tournament_selection(population, pop_fitness, config)
-        parent2 = tournament_selection(population, pop_fitness, config)
-        # child, cost = MPX(parent1, parent2, config.distance_matrix)
-        child, cost = EAX(parent1, parent2, config.distance_matrix)
+    # shared_fitness = fitness_sharing(pop_fitness, population, sigma_share=50, alpha=1.0)
+    offspring_generator = tournament_selection(pop_fitness, config.tournament_size)
+    # offspring_generator = rank_selection(pop_fitness, 2)
+
+    for i in range(config.offspring_size):
+        p1 = population[next(offspring_generator)]
+        p2 = population[next(offspring_generator)]
+        child, cost = EAX(p1, p2, config.distance_matrix)
         # assert is_valid_tour(child), "Generated invalid tour in crossover."
         offspring[i] = child
         offspring_fitness[i] = cost
 
     return offspring, offspring_fitness
-
-@njit(cache=True)
-def elimination(population, population_fitness, offspring, offspring_fitness, config):
-    """
-    Eliminate individuals to maintain population size, using Restricted Tournament Replacement (RTR).
-    Returns both the new population and updated fitness values.
-    """
-    pop_size = population.shape[0]
-
-    new_population = population.copy()
-    new_fitness = population_fitness.copy()
-
-    for i in range(offspring.shape[0]):
-        offspring_tour = offspring[i]
-        offspring_fit = offspring_fitness[i]
-
-        # Select random window
-        start_idx = np.random.randint(0, pop_size)
-        indices = [(start_idx + j) % pop_size for j in range(config.window_size)]
-
-        # Find the most similar individual in the window
-        best_idx = -1
-        best_distance = np.inf
-
-        for idx in indices:
-            dist = hamming_distance(offspring_tour, new_population[idx])
-            if dist < best_distance:
-                best_distance = dist
-                best_idx = idx
-
-        # Replace if offspring is better
-        if offspring_fit < new_fitness[best_idx]:
-            new_population[best_idx] = offspring_tour
-            new_fitness[best_idx] = offspring_fit
-
-    return new_population, new_fitness

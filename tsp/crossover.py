@@ -31,7 +31,12 @@ def MPX(parent1, parent2, distance_matrix):
     subtours = make_subtour(child, distance_matrix)
     initialize_subtours(subtours)
     repair_tour(subtours)
-    # assert is_valid_tour(child), "Invalid tour after MPX repair."
+
+    # If the greedy subcycle recombination encounters a situation where all options are infinite,
+    # then it will produce an invalid tour.
+    # In that case, return the first parent as fallback.
+    if not is_valid_tour(child):
+        return parent1, tour_cost(parent1, distance_matrix)
 
     cost = tour_cost(child, distance_matrix)
 
@@ -106,7 +111,6 @@ def EAX(parent1, parent2, distance_matrix, num_trials=1, num_cycles_to_select=2)
     cycles = eax_find_AB_cycles(parent1, parent2)
     
     if len(cycles) == 0:
-        # Parents are identical or very similar
         child = parent1.copy()
         return child, tour_cost(child, distance_matrix)
     

@@ -51,7 +51,7 @@ def lso(tour, distance_matrix, candidates, method=LSO_2OPT, max_iter=100, max_se
 
 
 @njit(cache=True)
-def precompute_candidates(distance_matrix, num_candidates=10, num_nn=5):
+def precompute_candidates(distance_matrix, num_candidates=5, num_nn=5):
     """
     Precompute candidate edges using Sinkhorn assignment and Nearest Neighbors.
     """

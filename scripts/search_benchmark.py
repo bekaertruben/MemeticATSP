@@ -137,7 +137,9 @@ def convergence_analysis(tour_file, seed=42):
     operators = [
         ('2-opt', LSO_2OPT, find_2opt_move),
         ('3-opt', LSO_3OPT, find_3opt_move),
-        ('Or-opt', LSO_OROPT, find_oropt_move),
+        ('Or-opt 5', LSO_OROPT, lambda t,d,c: find_oropt_move(t,d,c,5)),
+        ('Or-opt 20', LSO_OROPT, lambda t,d,c: find_oropt_move(t,d,c,20)),
+        ('Or-opt 100', LSO_OROPT, lambda t,d,c: find_oropt_move(t,d,c,100)),
     ]
     
     print(f"\n{'Operator':<12} {'Initial':>10} {'Final':>10} {'Iters':>6} {'Time (ms)':>10}")
@@ -151,11 +153,8 @@ def convergence_analysis(tour_file, seed=42):
         total_iters = 0
         start_time = time.perf_counter()
         
-        for i in range(10_000):
-            if method == LSO_OROPT:
-                gain = find_move(tour, distance_matrix, candidates, 3)
-            else:
-                gain = find_move(tour, distance_matrix, candidates)
+        for _ in range(10_000):
+            gain = find_move(tour, distance_matrix, candidates)
             
             if gain >= 0:
                 break
